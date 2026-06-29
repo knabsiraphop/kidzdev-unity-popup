@@ -1,0 +1,25 @@
+{
+  "name": "com.kidzdev.unity.popup",
+  "version": "1.0.0",
+  "displayName": "KidzDev Unity Popup",
+  "description": "Modal dialogs for Unity you await for a typed result — ShowAsync<TResult>(), stacked popups, async transitions, and a per-popup loader split (Resources / Direct / Addressables). UniTask-only, Addressables stays optional, zero singleton coupling.",
+  "unity": "6000.0",
+  "author": {
+    "name": "KidzDev"
+  },
+  "dependencies": {
+    "com.cysharp.unitask": "2.5.11"
+  },
+  "samples": [
+    {
+      "displayName": "Demo",
+      "description": "A scene wiring confirm/alert dialogs, a stacked warning over a confirm, and the same layer mixing Resources- and Direct-loaded popups.",
+      "path": "Samples~/Demo"
+    },
+    {
+      "displayName": "Addressables Loader",
+      "description": "An IPopupLoader backed by Unity Addressables (ref-counted handle + in-flight de-dup). Import only if you load popups via Addressables.",
+      "path": "Samples~/AddressablesLoader"
+    }
+  ]
+}

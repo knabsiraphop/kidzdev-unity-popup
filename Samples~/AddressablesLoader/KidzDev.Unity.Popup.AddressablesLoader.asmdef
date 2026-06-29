@@ -1,0 +1,11 @@
+{
+  "name": "KidzDev.Unity.Popup.AddressablesLoader",
+  "rootNamespace": "KidzDev.Unity.Popup.Samples",
+  "references": [
+    "KidzDev.Unity.Popup",
+    "Unity.Addressables",
+    "Unity.ResourceManager",
+    "UniTask"
+  ],
+  "autoReferenced": false
+}

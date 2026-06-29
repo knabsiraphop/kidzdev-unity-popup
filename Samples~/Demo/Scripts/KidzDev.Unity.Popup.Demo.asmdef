@@ -1,0 +1,9 @@
+{
+  "name": "KidzDev.Unity.Popup.Demo",
+  "rootNamespace": "KidzDev.Unity.Popup.Samples",
+  "references": [
+    "KidzDev.Unity.Popup",
+    "UniTask"
+  ],
+  "autoReferenced": false
+}
