@@ -33,9 +33,10 @@ namespace KidzDev.Unity.Popup
         private readonly PopupRegistry _registry;
         private readonly PopupOptions _defaultOptions;
         private readonly int _sortOrder;
+        private readonly Func<Transform> _layerFactory;
 
         private readonly List<Entry> _entries = new List<Entry>();
-        private CancellationTokenSource _lifetimeCts = new CancellationTokenSource();
+        private readonly CancellationTokenSource _lifetimeCts = new CancellationTokenSource();
         private Transform _layer;
         private bool _disposed;
 
@@ -43,19 +44,27 @@ namespace KidzDev.Unity.Popup
         /// <param name="transition">Default transition; defaults to <see cref="InstantPopupTransition"/>.</param>
         /// <param name="registry">Optional id → ref map for the <c>ShowAsync(object id, ...)</c> overload.</param>
         /// <param name="defaultOptions">Default per-show options; defaults to <see cref="PopupOptions.Default"/>.</param>
-        /// <param name="sortOrder">Sorting order of the overlay canvas (kept above normal UI).</param>
+        /// <param name="sortOrder">Sorting order of the default overlay canvas (ignored when <paramref name="layerFactory"/> is set).</param>
+        /// <param name="layerFactory">
+        /// Optional factory for the layer popups are parented under, called lazily on the first show. Use it to
+        /// supply a canvas configured for your project (e.g. a <c>CanvasScaler</c> with a reference resolution) —
+        /// the default layer scales at constant pixel size. The manager <b>owns</b> the returned object and
+        /// destroys it on <see cref="Dispose"/>, so return a fresh root, not a shared scene canvas.
+        /// </param>
         public PopupManager(
             IPopupLoader loader = null,
             IPopupTransition transition = null,
             PopupRegistry registry = null,
             PopupOptions defaultOptions = null,
-            int sortOrder = 1000)
+            int sortOrder = 1000,
+            Func<Transform> layerFactory = null)
         {
             _loader = loader ?? CompositePopupLoader.CreateDefault();
             _transition = transition ?? new InstantPopupTransition();
             _registry = registry;
             _defaultOptions = defaultOptions ?? PopupOptions.Default;
             _sortOrder = sortOrder;
+            _layerFactory = layerFactory;
         }
 
         /// <inheritdoc/>
@@ -126,7 +135,18 @@ namespace KidzDev.Unity.Popup
                 _loader.ReleasePrefab(reference, prefab);
             }
 
-            return (TResult)result;
+            return CastResult<TResult>(reference, result);
+        }
+
+        // A raw (TResult) cast would surface a bare InvalidCastException (or NRE unboxing null) that doesn't say
+        // which popup misbehaved; name the ref and both types so the mismatch is diagnosable from the exception.
+        private static TResult CastResult<TResult>(in PopupRef reference, object result)
+        {
+            if (result is TResult typed) return typed;
+            if (result == null && default(TResult) == null) return default;
+            throw new InvalidCastException(
+                $"Popup {reference} completed with {(result == null ? "null" : result.GetType().Name)}, " +
+                $"which is not the awaited result type {typeof(TResult).Name}.");
         }
 
         /// <inheritdoc/>
@@ -186,6 +206,15 @@ namespace KidzDev.Unity.Popup
         private Transform EnsureLayer()
         {
             if (_layer != null) return _layer;
+
+            if (_layerFactory != null)
+            {
+                _layer = _layerFactory();
+                if (_layer == null)
+                    throw new InvalidOperationException(
+                        "The layerFactory returned null; it must return the transform popups are parented under.");
+                return _layer;
+            }
 
             var go = new GameObject("[PopupLayer]");
             if (Application.isPlaying) UnityEngine.Object.DontDestroyOnLoad(go);

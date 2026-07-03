@@ -219,6 +219,83 @@ namespace KidzDev.Unity.Popup.Tests
         }
 
         [Test]
+        public void TryHandleBack_VetoingPopup_StaysOpen_ButStillConsumes()
+        {
+            _manager = new PopupManager(new FakeLoader(Prefab()), new GatedPopupTransition());
+            var show = _manager.ShowAsync<object>(AnyRef);
+            Top.VetoDismiss = true;
+
+            Assert.IsTrue(_manager.TryHandleBack(), "consumed because a popup was open");
+            Assert.AreEqual(1, _manager.OpenCount, "vetoing popup stays open");
+
+            Top.VetoDismiss = false;
+            Top.CloseWith("done");
+            Assert.AreEqual("done", show.GetAwaiter().GetResult());
+        }
+
+        [Test]
+        public void CloseAll_VetoingPopup_StaysOpen_OthersClose()
+        {
+            _manager = new PopupManager(new FakeLoader(Prefab()), new GatedPopupTransition());
+            var vetoing = _manager.ShowAsync<object>(AnyRef);
+            var vetoPopup = Top;
+            vetoPopup.VetoDismiss = true;
+            var normal = _manager.ShowAsync<object>(AnyRef);
+
+            _manager.CloseAll();
+            Assert.AreEqual(1, _manager.OpenCount, "only the vetoing popup survives");
+            Assert.AreEqual(PopupResult.Cancelled, normal.GetAwaiter().GetResult());
+
+            vetoPopup.VetoDismiss = false;
+            vetoPopup.CloseWith("done");
+            vetoing.GetAwaiter().GetResult();
+        }
+
+        [Test]
+        public void ShowAsync_ResultTypeMismatch_ThrowsDiagnosableCast_AndStillTearsDown()
+        {
+            var loader = new FakeLoader(Prefab());
+            _manager = new PopupManager(loader, new GatedPopupTransition());
+
+            var show = _manager.ShowAsync<bool>(AnyRef);
+            Top.CloseWith("not a bool");
+
+            var ex = Assert.Throws<InvalidCastException>(() => show.GetAwaiter().GetResult());
+            StringAssert.Contains("Boolean", ex.Message, "names the awaited type");
+            StringAssert.Contains("String", ex.Message, "names the delivered type");
+            Assert.AreEqual(0, _manager.OpenCount, "teardown still ran");
+            Assert.AreEqual(1, loader.ReleaseCount, "prefab still released");
+        }
+
+        [Test]
+        public void ShowAsync_NullResult_ReturnsNull_ForReferenceResultType()
+        {
+            _manager = new PopupManager(new FakeLoader(Prefab()), new GatedPopupTransition());
+            var show = _manager.ShowAsync<object>(AnyRef);
+            Top.CloseWith(null);
+            Assert.IsNull(show.GetAwaiter().GetResult());
+        }
+
+        [Test]
+        public void LayerFactory_SuppliesTheLayer_AndDisposeDestroysIt()
+        {
+            var custom = new GameObject("[CustomPopupLayer]").transform;
+            int calls = 0;
+            _manager = new PopupManager(new FakeLoader(Prefab()), new GatedPopupTransition(),
+                layerFactory: () => { calls++; return custom; });
+
+            var show = _manager.ShowAsync<object>(AnyRef);
+            Assert.AreEqual(1, calls, "factory called lazily, once");
+            Assert.AreSame(custom, Top.transform.parent, "popup parented under the custom layer");
+
+            Top.CloseWith("done");
+            show.GetAwaiter().GetResult();
+
+            _manager.Dispose();
+            Assert.IsTrue(custom == null, "manager owns the factory layer and destroys it on Dispose");
+        }
+
+        [Test]
         public void ShowAsync_ById_ThrowsWithoutRegistry()
         {
             _manager = new PopupManager(new FakeLoader(Prefab()), new GatedPopupTransition());

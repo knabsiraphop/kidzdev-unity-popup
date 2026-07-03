@@ -5,6 +5,18 @@ All notable changes to this package are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-07-03
+
+### Added
+- `PopupManager` constructor accepts an optional `layerFactory` to supply a custom popup layer (e.g. a canvas with a configured `CanvasScaler`); the default layer scales at constant pixel size. The manager owns the returned object and destroys it on `Dispose`.
+- EditMode coverage for the dismiss-veto path (`TryHandleBack` / `CloseAll` against a popup whose `TryDismiss` returns `false`).
+
+### Changed
+- A popup completing with a value that doesn't match the awaited `TResult` now throws an `InvalidCastException` naming the `PopupRef`, the delivered type, and the awaited type (was a bare cast failure; `null` into a value-type `TResult` threw `NullReferenceException`). Teardown behavior is unchanged.
+
+### Fixed
+- README no longer claims `PopupOptions` carries the overlay sort order (it is a `PopupManager` constructor parameter).
+
 ## [1.0.0] - 2026-06-29
 
 ### Added

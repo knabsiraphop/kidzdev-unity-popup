@@ -1,6 +1,6 @@
 {
   "name": "com.kidzdev.unity.popup",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "displayName": "KidzDev Unity Popup",
   "description": "Modal dialogs for Unity you await for a typed result — ShowAsync<TResult>(), stacked popups, async transitions, and a per-popup loader split (Resources / Direct / Addressables). UniTask-only, Addressables stays optional, zero singleton coupling.",
   "unity": "6000.0",

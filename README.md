@@ -26,7 +26,7 @@ Add to `Packages/manifest.json` (UniTask comes from the OpenUPM scoped registry)
     { "name": "OpenUPM", "url": "https://package.openupm.com", "scopes": ["com.cysharp.unitask"] }
   ],
   "dependencies": {
-    "com.kidzdev.unity.popup": "https://github.com/knabsiraphop/kidzdev-unity-popup.git#v1.0.0"
+    "com.kidzdev.unity.popup": "https://github.com/knabsiraphop/kidzdev-unity-popup.git#v1.0.1"
   }
 }
 ```
@@ -40,6 +40,10 @@ A popup is any prefab whose root has an `IPopup`. The manager loads it, instanti
 high-sort-order canvas layer behind a dimming backdrop, runs an enter transition, **awaits the result**, then
 runs the exit transition and destroys the instance.
 
+The default layer is a `ScreenSpaceOverlay` canvas at constant pixel size (`sortOrder` constructor parameter).
+To control scaling, pass a `layerFactory` to the `PopupManager` constructor and return your own configured
+canvas (e.g. a `CanvasScaler` with a reference resolution) — the manager owns it and destroys it on `Dispose`.
+
 | Type | Role |
 | --- | --- |
 | `IPopup` / `Popup` | The view contract / convenient `MonoBehaviour` base. `Close(result)` from a button. |
@@ -48,7 +52,7 @@ runs the exit transition and destroys the instance.
 | `IPopupLoader` | Loads a `PopupRef` to a prefab. `CompositePopupLoader` routes by source. |
 | `IPopupService` / `PopupService` / `PopupManager` | The seam, static facade, and default impl. |
 | `IPopupTransition` | `Instant` (default) / `Fade` / `Scale` — no third-party animation dependency. |
-| `PopupOptions` | Backdrop color, dismiss-on-backdrop, dismiss-on-back, transition override, sort order. |
+| `PopupOptions` | Backdrop color, dismiss-on-backdrop, dismiss-on-back, transition override. |
 
 ## Ready-made popups
 
