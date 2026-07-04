@@ -52,7 +52,9 @@ canvas (e.g. a `CanvasScaler` with a reference resolution) — the manager owns 
 | `IPopupLoader` | Loads a `PopupRef` to a prefab. `CompositePopupLoader` routes by source. |
 | `IPopupService` / `PopupService` / `PopupManager` | The seam, static facade, and default impl. |
 | `IPopupTransition` | `Instant` (default) / `Fade` / `Scale` — no third-party animation dependency. |
-| `PopupOptions` | Backdrop color, dismiss-on-backdrop, dismiss-on-back, transition override. |
+| `PopupOptions` | Backdrop color, dismiss-on-backdrop, dismiss-on-back, transition override, `AutoDismissAfter`. |
+| `IPopupStack` / `PopupStack` / `PopupStackController` | Capped, queued group of *concurrently*-visible popups (a reward stack) — see [below](#reward-stacks-several-popups-visible-at-once). |
+| `IStackLayout` | The reward stack's arrangement/interactivity policy — `DeckStackLayout` (peeking) or `GroupStackLayout` (your own `LayoutGroup`). |
 
 ## Ready-made popups
 
@@ -108,6 +110,9 @@ PopupService.Default = new PopupManager(loader);
   it from your Android-back / Esc handler **before** the navigator's back handling so Back closes a popup first.
 - `CloseAll()` dismisses every open popup; `Dispose()` cancels in-flight shows and tears down the layer.
 
+This is a modal **LIFO** — only the newest popup is ever interactive. For several popups visible and interactive
+**at once** (a reward stack), see [`PopupStack`](#reward-stacks-several-popups-visible-at-once) below.
+
 ## Writing a custom popup
 
 ```csharp
@@ -130,10 +135,106 @@ public sealed class RewardPopup : Popup
 bool claimed = await PopupService.Default.ShowAsync<bool>(PopupRef.Resources("Popups/Reward"), arg: 100);
 ```
 
+## Timed popups (auto-dismiss)
+
+`PopupOptions.AutoDismissAfter` closes a popup on its own after N seconds — the countdown starts once the enter
+transition finishes, is cancelled if the popup closes first, and routes through `IPopup.TryDismiss` (a popup that
+vetoes dismissal is not auto-closed). It uses `ignoreTimeScale: true` internally, so a timed popup still closes
+while the game is paused.
+
+```csharp
+var result = await PopupService.Default.ShowAsync<PopupResult>(
+    PopupRef.Resources("Popups/Announcement"),
+    new AnnouncementPopup.Content("Daily bonus!", "+50 coins", seconds: 3f),
+    new PopupOptions
+    {
+        AutoDismissAfter = 3f,
+        DismissOnBackdropClick = true,           // let an impatient player tap it away early
+        BackdropColor = new Color(0f, 0f, 0f, 0.3f),
+    });
+
+// PopupResult.Confirmed  → the player tapped it
+// PopupResult.Dismissed  → it timed out (or the player tapped the backdrop)
+```
+
+Because popups stack, two timed announcements with different durations can be shown concurrently and each closes
+independently on its own schedule:
+
+```csharp
+var lower = PopupService.Default.ShowAsync<PopupResult>(
+    PopupRef.Resources("Popups/Announcement"),
+    new AnnouncementPopup.Content("Event ends soon", "Closes in 6s", 6f),
+    new PopupOptions { AutoDismissAfter = 6f });
+
+var upper = PopupService.Default.ShowAsync<PopupResult>(
+    PopupRef.Resources("Popups/Announcement"),
+    new AnnouncementPopup.Content("On top", "Closes in 3s", 3f),
+    new PopupOptions { AutoDismissAfter = 3f });
+
+await UniTask.WhenAll(lower, upper); // both auto-close, the shorter one first
+```
+
+## Reward stacks (several popups visible at once)
+
+`IPopupStack` (facade: `PopupStack`) is a different shape from `IPopupService`: a **capped, queued group** of
+concurrently-visible, concurrently-interactive cards — "you got 5 rewards" — instead of a single top-of-LIFO
+modal. Pick a layout, assign the facade once, then `Enqueue` each card; cards past the layout's `maxVisible` are
+queued and not even loaded until a slot frees, so a queued card's `OnOpened` never runs early.
+
+### Deck — cards peek behind each other, one at a time
+
+```csharp
+PopupStack.Default = new PopupStackController(new DeckStackLayout(maxVisible: 3));
+
+var pending = new UniTask<PopupResult>[5];
+for (int i = 0; i < pending.Length; i++)
+    pending[i] = PopupStack.Default.Enqueue<PopupResult>(PopupRef.Resources("Popups/RewardCard"), $"Reward #{i + 1}");
+
+await UniTask.WhenAll(pending); // 3 peek at once; collecting the front card promotes the next queued one
+```
+
+### Group — every card independently interactive in your own layout
+
+Swap `DeckStackLayout` for `GroupStackLayout(myLayoutGroup)` to lay cards out in a caller-owned `LayoutGroup`
+(e.g. a horizontal row or a scroll view's content) instead of a peeking deck — every visible card accepts input
+at once, not just the frontmost:
+
+```csharp
+PopupStack.Default = new PopupStackController(new GroupStackLayout(rewardRowLayoutGroup, maxVisible: 3));
+
+foreach (var reward in rewards)
+    await PopupStack.Default.Enqueue<PopupResult>(PopupRef.Resources("Popups/RewardCard"), reward);
+```
+
+### One-at-a-time, timed notification queue
+
+`maxVisible: 1` on `DeckStackLayout` turns it into a sequential notification queue — nothing to peek behind since
+only one card ever exists. Combine with `autoDismissAfter` so each reward shows, counts down, and — collected or
+not — the next one takes its place automatically:
+
+```csharp
+var notifications = new PopupStackController(new DeckStackLayout(maxVisible: 1));
+
+const float seconds = 4f;
+int collected = 0;
+for (int i = 0; i < rewards.Count; i++)
+{
+    var result = await notifications.Enqueue<PopupResult>(
+        PopupRef.Resources("Popups/RewardCard"),
+        new RewardCardPopup.Content($"Reward #{i + 1}", seconds),
+        autoDismissAfter: seconds);
+    if (result == PopupResult.Confirmed) collected++;
+}
+```
+
+A card's own countdown label is purely cosmetic — the real deadline is always enforced by `autoDismissAfter`, the
+same render/enforce split `AutoDismissAfter` uses on `PopupManager`.
+
 ## Samples
 
-- **Demo** — a scene wiring confirm/alert dialogs, a stacked warning over a confirm, and the same layer mixing
-  Resources- and Direct-loaded popups.
+- **Demo** — a scene wiring confirm/alert dialogs, a stacked warning over a confirm, timed announcements (single
+  and stacked), and a reward stack shown three ways: `DeckStackLayout` (3 peeking), `GroupStackLayout` (a list),
+  and a one-at-a-time timed notification queue.
 - **Addressables Loader** — `AddressablesPopupLoader` (import only if you load popups via Addressables).
 
 ## License
