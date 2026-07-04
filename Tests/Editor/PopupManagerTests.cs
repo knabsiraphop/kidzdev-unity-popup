@@ -314,5 +314,101 @@ namespace KidzDev.Unity.Popup.Tests
             Top.CloseWith(true);
             Assert.IsTrue(show.GetAwaiter().GetResult());
         }
+
+        [Test]
+        public void AutoDismiss_ClosesPopup_WhenTimerFires()
+        {
+            var loader = new FakeLoader(Prefab());
+            var timer = new GatedTimer();
+            _manager = new PopupManager(loader, new GatedPopupTransition(), autoDismissTimer: timer.Delay);
+
+            var show = _manager.ShowAsync<PopupResult>(AnyRef, options: new PopupOptions { AutoDismissAfter = 2f });
+            Assert.AreEqual(1, timer.Calls);
+            Assert.AreEqual(2f, timer.LastSeconds);
+
+            timer.Fire();
+            Assert.AreEqual(PopupResult.Cancelled, show.GetAwaiter().GetResult());
+            Assert.AreEqual(0, _manager.OpenCount);
+            Assert.AreEqual(1, loader.ReleaseCount);
+        }
+
+        [Test]
+        public void AutoDismiss_ButtonBeforeTimer_KeepsButtonResult()
+        {
+            var timer = new GatedTimer();
+            _manager = new PopupManager(new FakeLoader(Prefab()), new GatedPopupTransition(), autoDismissTimer: timer.Delay);
+
+            var show = _manager.ShowAsync<bool>(AnyRef, options: new PopupOptions { AutoDismissAfter = 2f });
+            Top.CloseWith(true);
+            Assert.IsTrue(show.GetAwaiter().GetResult());
+
+            // The timer fire after close must be a no-op (popup instance is already torn down).
+            Assert.DoesNotThrow(() => timer.Fire());
+        }
+
+        [Test]
+        public void AutoDismiss_VetoingPopup_StaysOpen()
+        {
+            var timer = new GatedTimer();
+            _manager = new PopupManager(new FakeLoader(Prefab()), new GatedPopupTransition(), autoDismissTimer: timer.Delay);
+
+            var show = _manager.ShowAsync<object>(AnyRef, options: new PopupOptions { AutoDismissAfter = 2f });
+            Top.VetoDismiss = true;
+
+            timer.Fire();
+            Assert.AreEqual(1, _manager.OpenCount, "vetoing popup stays open after the timer fires");
+
+            Top.VetoDismiss = false;
+            Top.CloseWith("done");
+            Assert.AreEqual("done", show.GetAwaiter().GetResult());
+        }
+
+        [Test]
+        public void AutoDismiss_Zero_NeverArmsTimer()
+        {
+            var timer = new GatedTimer();
+            _manager = new PopupManager(new FakeLoader(Prefab()), new GatedPopupTransition(), autoDismissTimer: timer.Delay);
+
+            var show = _manager.ShowAsync<object>(AnyRef, options: new PopupOptions { AutoDismissAfter = 0f });
+            Assert.AreEqual(0, timer.Calls);
+
+            Top.CloseWith("done");
+            show.GetAwaiter().GetResult();
+        }
+
+        [Test]
+        public void AutoDismiss_ArmsOnlyAfterEnterTransition()
+        {
+            var timer = new GatedTimer();
+            var transition = new GatedPopupTransition { Open = false };
+            _manager = new PopupManager(new FakeLoader(Prefab()), transition, autoDismissTimer: timer.Delay);
+
+            var show = _manager.ShowAsync<object>(AnyRef, options: new PopupOptions { AutoDismissAfter = 2f });
+            Assert.AreEqual(0, timer.Calls, "not armed until the enter transition completes");
+
+            transition.Release(); // enter transition completes
+            Assert.AreEqual(1, timer.Calls, "armed right after enter");
+
+            Top.CloseWith("done");
+            show.GetAwaiter().GetResult();
+        }
+
+        [Test]
+        public void Dispose_CancelsAutoDismissTimer()
+        {
+            var timer = new GatedTimer();
+            _manager = new PopupManager(new FakeLoader(Prefab()), new GatedPopupTransition(), autoDismissTimer: timer.Delay);
+
+            var show = _manager.ShowAsync<object>(AnyRef, options: new PopupOptions { AutoDismissAfter = 2f });
+            Assert.AreEqual(1, timer.Calls);
+
+            _manager.Dispose();
+            Assert.AreEqual(0, _manager.OpenCount);
+
+            bool cancelled = false;
+            try { show.GetAwaiter().GetResult(); }
+            catch (OperationCanceledException) { cancelled = true; }
+            Assert.IsTrue(cancelled, "in-flight show cancelled by Dispose");
+        }
     }
 }

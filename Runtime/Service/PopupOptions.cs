@@ -20,6 +20,14 @@ namespace KidzDev.Unity.Popup
         /// <summary>Optional per-show transition override; <c>null</c> uses the manager's default transition.</summary>
         public IPopupTransition Transition = null;
 
+        /// <summary>
+        /// Seconds after which the popup auto-closes (as if dismissed). <c>0</c> or less disables it.
+        /// The countdown starts after the enter transition and is cancelled if the popup closes first.
+        /// Auto-close routes through <see cref="IPopup.TryDismiss"/>, so a vetoing popup is not auto-closed
+        /// and the close result is the popup's <c>DismissResult</c>.
+        /// </summary>
+        public float AutoDismissAfter = 0f;
+
         /// <summary>A fresh default-valued options instance.</summary>
         public static PopupOptions Default => new PopupOptions();
     }

@@ -34,6 +34,7 @@ namespace KidzDev.Unity.Popup
         private readonly PopupOptions _defaultOptions;
         private readonly int _sortOrder;
         private readonly Func<Transform> _layerFactory;
+        private readonly Func<float, CancellationToken, UniTask> _autoDismissTimer;
 
         private readonly List<Entry> _entries = new List<Entry>();
         private readonly CancellationTokenSource _lifetimeCts = new CancellationTokenSource();
@@ -51,13 +52,19 @@ namespace KidzDev.Unity.Popup
         /// the default layer scales at constant pixel size. The manager <b>owns</b> the returned object and
         /// destroys it on <see cref="Dispose"/>, so return a fresh root, not a shared scene canvas.
         /// </param>
+        /// <param name="autoDismissTimer">
+        /// Optional timer backing <see cref="PopupOptions.AutoDismissAfter"/>; defaults to
+        /// <c>UniTask.Delay</c> with <c>ignoreTimeScale: true</c> so a timed popup still closes while the game
+        /// is paused. Inject a custom timer for scaled, server-driven, or test-controlled timing.
+        /// </param>
         public PopupManager(
             IPopupLoader loader = null,
             IPopupTransition transition = null,
             PopupRegistry registry = null,
             PopupOptions defaultOptions = null,
             int sortOrder = 1000,
-            Func<Transform> layerFactory = null)
+            Func<Transform> layerFactory = null,
+            Func<float, CancellationToken, UniTask> autoDismissTimer = null)
         {
             _loader = loader ?? CompositePopupLoader.CreateDefault();
             _transition = transition ?? new InstantPopupTransition();
@@ -65,7 +72,11 @@ namespace KidzDev.Unity.Popup
             _defaultOptions = defaultOptions ?? PopupOptions.Default;
             _sortOrder = sortOrder;
             _layerFactory = layerFactory;
+            _autoDismissTimer = autoDismissTimer ?? DefaultAutoDismissTimer;
         }
+
+        private static UniTask DefaultAutoDismissTimer(float seconds, CancellationToken ct) =>
+            UniTask.Delay(TimeSpan.FromSeconds(seconds), ignoreTimeScale: true, cancellationToken: ct);
 
         /// <inheritdoc/>
         public int OpenCount => _entries.Count;
@@ -100,6 +111,7 @@ namespace KidzDev.Unity.Popup
             Entry entry = null;
             GameObject instance = null;
             PopupBackdrop backdrop = null;
+            CancellationTokenSource autoDismissCts = null;
             object result = null;
             try
             {
@@ -123,12 +135,21 @@ namespace KidzDev.Unity.Popup
 
                 var transition = options.Transition ?? _transition;
                 await transition.PlayEnterAsync(popup, linked.Token);
+
+                if (options.AutoDismissAfter > 0f)
+                {
+                    autoDismissCts = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
+                    RunAutoDismissAsync(popup, options.AutoDismissAfter, autoDismissCts.Token).Forget();
+                }
+
                 result = await popup.Result.AttachExternalCancellation(linked.Token);
                 popup.OnClosing();
                 await transition.PlayExitAsync(popup, linked.Token);
             }
             finally
             {
+                autoDismissCts?.Cancel();
+                autoDismissCts?.Dispose();
                 if (entry != null) _entries.Remove(entry);
                 DestroyObject(instance);
                 if (backdrop != null) DestroyObject(backdrop.gameObject);
@@ -136,6 +157,22 @@ namespace KidzDev.Unity.Popup
             }
 
             return CastResult<TResult>(reference, result);
+        }
+
+        // Fires PopupOptions.AutoDismissAfter. Routes through TryDismiss so a vetoing popup stays open and the
+        // close result matches whatever Back/backdrop would produce. Cancellation (popup closed first, or the
+        // manager was disposed) is expected and silently swallowed.
+        private async UniTaskVoid RunAutoDismissAsync(IPopup popup, float seconds, CancellationToken ct)
+        {
+            try
+            {
+                await _autoDismissTimer(seconds, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            popup.TryDismiss();
         }
 
         // A raw (TResult) cast would surface a bare InvalidCastException (or NRE unboxing null) that doesn't say

@@ -26,7 +26,7 @@ Add to `Packages/manifest.json` (UniTask comes from the OpenUPM scoped registry)
     { "name": "OpenUPM", "url": "https://package.openupm.com", "scopes": ["com.cysharp.unitask"] }
   ],
   "dependencies": {
-    "com.kidzdev.unity.popup": "https://github.com/knabsiraphop/kidzdev-unity-popup.git#v1.0.1"
+    "com.kidzdev.unity.popup": "https://github.com/knabsiraphop/kidzdev-unity-popup.git#v1.0.2"
   }
 }
 ```

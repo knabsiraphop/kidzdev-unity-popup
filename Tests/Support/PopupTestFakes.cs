@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -52,10 +53,14 @@ namespace KidzDev.Unity.Popup.Tests
         /// <summary>Closes this popup with <paramref name="result"/> (what a button would do).</summary>
         public void CloseWith(object result) => Completion.TrySetResult(result);
 
-        /// <summary>Builds a fake "prefab" GameObject carrying a <see cref="FakePopup"/>.</summary>
+        /// <summary>
+        /// Builds a fake "prefab" GameObject carrying a <see cref="FakePopup"/>. Rooted on a
+        /// <see cref="RectTransform"/> (a superset of <see cref="Transform"/>) so the same fixture works for
+        /// both <c>PopupManagerTests</c> and <c>PopupStackControllerTests</c>, the latter requiring one.
+        /// </summary>
         public static GameObject CreatePrefab(string name = "FakePopup")
         {
-            var go = new GameObject(name);
+            var go = new GameObject(name, typeof(RectTransform));
             go.AddComponent<FakePopup>();
             go.SetActive(false);
             return go;
@@ -127,6 +132,64 @@ namespace KidzDev.Unity.Popup.Tests
             _pending.Clear();
             foreach (var t in copy) t.TrySetResult();
         }
+    }
+
+    /// <summary>
+    /// An auto-dismiss timer whose completion the test controls, for <c>PopupManager</c>'s
+    /// <c>autoDismissTimer</c> ctor param. Each call parks until <see cref="Fire"/>; honors cancellation so
+    /// a popup closing first (or manager Dispose) unblocks the awaiter with <see cref="OperationCanceledException"/>.
+    /// </summary>
+    public sealed class GatedTimer
+    {
+        public int Calls;
+        public float LastSeconds;
+        private readonly List<UniTaskCompletionSource> _pending = new List<UniTaskCompletionSource>();
+
+        public UniTask Delay(float seconds, CancellationToken ct)
+        {
+            Calls++;
+            LastSeconds = seconds;
+            var tcs = new UniTaskCompletionSource();
+            _pending.Add(tcs);
+            ct.Register(() => tcs.TrySetCanceled(ct));
+            return tcs.Task;
+        }
+
+        /// <summary>Completes every pending timer (as if its duration elapsed).</summary>
+        public void Fire()
+        {
+            var copy = _pending.ToArray();
+            _pending.Clear();
+            foreach (var t in copy) t.TrySetResult();
+        }
+    }
+
+    /// <summary>
+    /// An <see cref="IStackLayout"/> for <c>PopupStackController</c> tests. <see cref="ArrangeAsync"/> completes
+    /// synchronously and records each call's visible-card count; <see cref="InteractablePredicate"/> lets a test
+    /// script exactly which slots accept input.
+    /// </summary>
+    public sealed class RecordingStackLayout : IStackLayout
+    {
+        public int ArrangeCalls;
+        public readonly List<int> ArrangedCounts = new List<int>();
+        public Func<int, int, bool> InteractablePredicate = (index, count) => index == 0;
+
+        public RecordingStackLayout(int maxVisible) => MaxVisible = maxVisible;
+
+        public int MaxVisible { get; }
+
+        public UniTask ArrangeAsync(IReadOnlyList<RectTransform> visibleCards, CancellationToken ct)
+        {
+            ArrangeCalls++;
+            ArrangedCounts.Add(visibleCards.Count);
+            return UniTask.CompletedTask;
+        }
+
+        public bool IsInteractable(int index, int visibleCount) => InteractablePredicate(index, visibleCount);
+
+        /// <summary>Settable so a test can verify the controller honors a non-null anchor; null (default) matches DeckStackLayout's behavior.</summary>
+        public Transform BackdropAnchor { get; set; }
     }
 
     /// <summary>An <see cref="IPopupLoader"/> that records the last ref it was asked to load — for routing tests.</summary>
