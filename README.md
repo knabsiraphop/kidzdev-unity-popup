@@ -237,6 +237,10 @@ same render/enforce split `AutoDismissAfter` uses on `PopupManager`.
   and a one-at-a-time timed notification queue.
 - **Addressables Loader** — `AddressablesPopupLoader` (import only if you load popups via Addressables).
 
+## Authorship
+
+Built with [Claude Code](https://claude.com/claude-code), Anthropic's AI coding agent: the design, direction, and review are human ([@knabsiraphop](https://github.com/knabsiraphop)); most of the implementation code was written by Claude under that direction. All code is original — nothing copied from or bundled with third-party sources.
+
 ## License
 
 MIT — see [LICENSE.md](LICENSE.md).
